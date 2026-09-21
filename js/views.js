@@ -2090,6 +2090,7 @@ App.openDbWindow = function () {
   if (typeof MySQLBackend === 'undefined') { toast('ไม่พบโมดูล MySQL (js/mysql.js)', 'error'); return; }
   const url = localStorage.getItem('it_stock_db_server_url') || 'http://localhost:3333';
   const enabled = !!localStorage.getItem('it_stock_db_server_url.enabled');
+  const sbMode = !!localStorage.getItem('it_stock_supabase_enabled');
   openModal(`
     <div class="dbwin-titlebar">
       <span>ตั้งค่าฐานข้อมูล [ กด Esc หรือปุ่ม x เพื่อปิดหน้าต่าง ]</span>
@@ -2098,6 +2099,14 @@ App.openDbWindow = function () {
     <div class="dbwin-body">
       <h2 class="dbwin-heading">ตั้งค่าฐานข้อมูล</h2>
       <div class="dbwin-form">
+        <div class="dbwin-row dbwin-check-row">
+          <label>ประเภท :</label>
+          <div>
+            <label class="dbwin-check"><input type="radio" name="dbw-mode" value="mysql" ${sbMode ? '' : 'checked'} onchange="App.dbwModeChange('mysql')"> MySQL Server (เครือข่ายภายใน)</label>
+            <label class="dbwin-check"><input type="radio" name="dbw-mode" value="supabase" ${sbMode ? 'checked' : ''} onchange="App.dbwModeChange('supabase')"> Supabase Cloud (ฟรี ไม่ต้องเปิดเครื่อง server)</label>
+          </div>
+        </div>
+        <div id="dbw-mysql-fields">
         <div class="dbwin-row">
           <label>ชื่อไอพีที่เก็บฐานข้อมูล :</label>
           <input class="dbwin-input" id="dbw-server-url" value="${esc(url)}" spellcheck="false">
@@ -2111,9 +2120,33 @@ App.openDbWindow = function () {
           <div>
             <label class="dbwin-check">
               <input type="checkbox" id="dbw-enabled" ${enabled ? 'checked' : ''}>
-              เปิดใช้งานการซิงค์ผ่านฐานข้อมูล MySQL
+              เปิดใช้งานการซิงค์
             </label>
           </div>
+        </div>
+        </div>
+        <div id="dbw-supabase-fields" style="display:none">
+        <div class="dbwin-row">
+          <label class="dbwin-strong">Project URL :</label>
+          <input class="dbwin-input" id="dbw-sb-url" placeholder="https://xxxx.supabase.co" spellcheck="false">
+        </div>
+        <div class="dbwin-row">
+          <label class="dbwin-strong">anon public key :</label>
+          <input class="dbwin-input dbwin-pass" id="dbw-sb-key" type="password" placeholder="eyJhbGciOiJIUzI1NiIs..." autocomplete="new-password">
+        </div>
+        <div class="dbwin-row dbwin-check-row">
+          <label></label>
+          <div>
+            <label class="dbwin-check">
+              <input type="checkbox" id="dbw-sb-enabled" ${sbMode ? 'checked' : ''}>
+              เปิดใช้งานการซิงค์
+            </label>
+          </div>
+        </div>
+        <div class="dbwin-row">
+          <label></label>
+          <div><button class="dbwin-btn" onclick="App.dbwSupaSql()">ดู SQL สร้างตาราง</button></div>
+        </div>
         </div>
         <div class="dbwin-row">
           <label class="dbwin-strong">ชื่อผู้ใช้ฐานข้อมูล :</label>
@@ -2158,6 +2191,10 @@ App.dbwClose = function () {
 };
 
 function _dbwForm() {
+  const modeEl = document.querySelector('input[name="dbw-mode"]:checked');
+  const sbUrl = document.getElementById('dbw-sb-url');
+  const sbKey = document.getElementById('dbw-sb-key');
+  const sbEnabled = document.getElementById('dbw-sb-enabled');
   return {
     serverUrl: document.getElementById('dbw-server-url').value.trim(),
     enabled: document.getElementById('dbw-enabled').checked,
@@ -2165,14 +2202,42 @@ function _dbwForm() {
     password: document.getElementById('dbw-pass').value,
     database: document.getElementById('dbw-name').value.trim() || 'it_stock',
     port: document.getElementById('dbw-port').value.trim() || '3306',
+    mode: modeEl ? modeEl.value : 'mysql',
+    sbUrl: sbUrl ? sbUrl.value.trim() : '',
+    sbKey: sbKey ? sbKey.value.trim() : '',
+    sbEnabled: sbEnabled ? sbEnabled.checked : false,
   };
 }
 
 function _dbwStatus(html) { document.getElementById('dbw-status').innerHTML = html; }
 
+/* สลับโหมด MySQL / Supabase ในหน้าต่างตั้งค่า */
+App.dbwModeChange = function (mode) {
+  const isSb = mode === 'supabase';
+  document.getElementById('dbw-mysql-fields').style.display = isSb ? 'none' : '';
+  document.getElementById('dbw-supabase-fields').style.display = isSb ? '' : 'none';
+  if (isSb) {
+    const urlEl = document.getElementById('dbw-sb-url');
+    if (urlEl && !urlEl.value) urlEl.value = localStorage.getItem('it_stock_supabase_url') || '';
+    _dbwStatus(SupabaseBackend && SupabaseBackend.enabled
+      ? 'กำลังใช้ Supabase Cloud อยู่ — ' + esc(SupabaseBackend.url)
+      : 'โหมด Supabase — กรอก Project URL และ anon key (หน้า Settings → API ในเว็บ Supabase) แล้วกด "ทดสอบ การเชื่อม ฐาน ข้อมูล"');
+  } else {
+    App.dbwLoad().catch(() => {});
+  }
+};
+
 /* โหลดค่าปัจจุบันจาก server */
 App.dbwLoad = async function () {
   const f = _dbwForm();
+  if (f.mode === 'supabase') {
+    const urlEl = document.getElementById('dbw-sb-url');
+    if (urlEl && !urlEl.value) urlEl.value = localStorage.getItem('it_stock_supabase_url') || '';
+    _dbwStatus(typeof SupabaseBackend !== 'undefined' && SupabaseBackend.enabled
+      ? 'กำลังใช้ Supabase Cloud อยู่ — ' + esc(SupabaseBackend.url)
+      : 'โหมด Supabase — กรอก URL และ anon key แล้วกด "ทดสอบ"');
+    return;
+  }
   MySQLBackend.setUrl(f.serverUrl);
   _dbwStatus('กำลังโหลดค่าจากเซิร์ฟเวอร์...');
   try {
@@ -2189,6 +2254,7 @@ App.dbwLoad = async function () {
 /* ทดสอบ + บันทึก (บันทึกเมื่อกด "บันทึก" เท่านั้น) */
 App.dbwSave = async function (doSave) {
   const f = _dbwForm();
+  if (f.mode === 'supabase') return App.dbwSaveSupa(doSave);
   MySQLBackend.setUrl(f.serverUrl);
   MySQLBackend.setEnabled(doSave ? f.enabled : false);
   _dbwStatus(doSave ? 'กำลังบันทึกและทดสอบการเชื่อมต่อ...' : 'กำลังทดสอบการเชื่อมต่อ ฐานข้อมูล...');
@@ -2220,6 +2286,7 @@ App.dbwSave = async function (doSave) {
 /* สร้างฐานข้อมูล + ตารางทั้งหมด */
 App.dbwSetup = async function () {
   const f = _dbwForm();
+  if (f.mode === 'supabase') { App.dbwSupaSql(); return; }
   MySQLBackend.setUrl(f.serverUrl);
   if (!confirm(`สร้างฐานข้อมูล "${f.database}" และตารางทั้งหมดบน ${f.serverUrl} ใช่หรือไม่?\n(ตารางที่มีอยู่แล้วจะไม่ถูกลบ)`)) return;
   _dbwStatus('กำลังสร้างฐานข้อมูลและตาราง...');
@@ -2232,6 +2299,108 @@ App.dbwSetup = async function () {
     }
   } catch (e) {
     _dbwStatus(`<span class="dbwin-err">❌ ติดต่อ IT Stock Server ไม่ได้ (${esc(e.message)})</span>`);
+  }
+};
+
+/* ============================================================
+   โหมด Supabase Cloud — ทดสอบ / บันทึก / ซิงค์ / SQL สร้างตาราง
+   ============================================================ */
+
+/* SQL สร้างตารางทั้งหมด — คัดลอกไปวางใน Supabase → SQL Editor → Run */
+App.dbwSupaSql = function () {
+  const sql = [
+    '-- IT Stock: สร้างตารางสำหรับซิงค์ข้อมูล (วางใน Supabase > SQL Editor > Run)',
+    'create table if not exists public.it_items (id text primary key, data jsonb not null, updated_at bigint);',
+    'create table if not exists public.it_transactions (id text primary key, data jsonb not null, updated_at bigint);',
+    'create table if not exists public.it_users (id text primary key, data jsonb not null, updated_at bigint);',
+    'create table if not exists public.it_reorder (id text primary key, data jsonb not null, updated_at bigint);',
+    'create table if not exists public.it_meta (id text primary key, data jsonb not null, updated_at bigint);',
+    '',
+    '-- เปิดสิทธิ์ให้ anon key ใช้งานได้ (โปรเจกต์ส่วนตัว — ใครมี key คือใช้ได้)',
+    'alter table public.it_items enable row level security;',
+    'alter table public.it_transactions enable row level security;',
+    'alter table public.it_users enable row level security;',
+    'alter table public.it_reorder enable row level security;',
+    'alter table public.it_meta enable row level security;',
+    '',
+    'drop policy if exists "it_stock anon all" on public.it_items;',
+    'drop policy if exists "it_stock anon all" on public.it_transactions;',
+    'drop policy if exists "it_stock anon all" on public.it_users;',
+    'drop policy if exists "it_stock anon all" on public.it_reorder;',
+    'drop policy if exists "it_stock anon all" on public.it_meta;',
+    '',
+    'create policy "it_stock anon all" on public.it_items for all to anon using (true) with check (true);',
+    'create policy "it_stock anon all" on public.it_transactions for all to anon using (true) with check (true);',
+    'create policy "it_stock anon all" on public.it_users for all to anon using (true) with check (true);',
+    'create policy "it_stock anon all" on public.it_reorder for all to anon using (true) with check (true);',
+    'create policy "it_stock anon all" on public.it_meta for all to anon using (true) with check (true);',
+    '',
+    '-- เปิด Realtime: ให้ตารางเหล่านี้แจ้งเตือนการเปลี่ยนแปลงสด',
+    'alter publication supabase_realtime add table public.it_items;',
+    'alter publication supabase_realtime add table public.it_transactions;',
+    'alter publication supabase_realtime add table public.it_users;',
+    'alter publication supabase_realtime add table public.it_reorder;',
+  ].join('\n');
+  openModal(`
+    <div class="dbwin-titlebar"><span>SQL สร้างตาราง Supabase [ กด Esc เพื่อปิด ]</span><button class="dbwin-close" onclick="closeModal()" title="ปิด">x</button></div>
+    <div class="dbwin-body">
+      <p style="margin:8px 0 4px;color:#1e3a5f">ขั้นตอน: 1) เปิด supabase.com → เข้าโปรเจกต์ 2) เมนูซ้าย <b>SQL Editor</b> → <b>New query</b> 3) วางคำสั่งด้านล่างทั้งหมด → กด <b>Run</b> 4) กลับมาที่นี่กรอก URL + anon key แล้วกด "ทดสอบ การเชื่อม ฐาน ข้อมูล"</p>
+      <textarea id="dbw-sb-sql" readonly style="width:100%;height:280px;font-family:Consolas,monospace;font-size:12px;white-space:pre;background:#fffbe6;border:2px solid #b8860b;border-radius:4px;padding:8px">${esc(sql)}</textarea>
+      <div class="dbwin-btnrow">
+        <button class="dbwin-btn dbwin-btn-primary" onclick="(function(){var t=document.getElementById('dbw-sb-sql');t.select();try{document.execCommand('copy');toast('คัดลอก SQL แล้ว ✅ ไปวางใน SQL Editor ได้เลย','success')}catch(e){toast('กด Ctrl+C เพื่อคัดลอก','info')}})()">คัดลอก SQL</button>
+        <button class="dbwin-btn dbwin-btn-use" onclick="closeModal()">ปิด</button>
+      </div>
+    </div>
+  `, { cls: 'dbwin' });
+  document.addEventListener('keydown', function _sqlEsc(e){ if(e.key==='Escape'){closeModal();document.removeEventListener('keydown',_sqlEsc);} });
+};
+
+/* ทดสอบ/บันทึก โหมด Supabase */
+App.dbwSaveSupa = async function (doSave) {
+  const f = _dbwForm();
+  if (!f.sbUrl || !f.sbKey) {
+    _dbwStatus('<span class="dbwin-err">❌ กรอก Project URL และ anon key ให้ครบก่อน</span>');
+    return;
+  }
+  SupabaseBackend.setUrl(f.sbUrl);
+  SupabaseBackend.setKey(f.sbKey);
+  SupabaseBackend.setEnabled(doSave ? f.sbEnabled : false);
+  _dbwStatus(doSave ? 'กำลังบันทึกและทดสอบการเชื่อมต่อ Supabase...' : 'กำลังทดสอบการเชื่อมต่อ Supabase...');
+  try {
+    const r = await SupabaseBackend.testConnection();
+    if (!r.ok) {
+      _dbwStatus(`<span class="dbwin-err">❌ ${esc(r.error)}</span>`);
+      if (doSave) toast('เชื่อมต่อ Supabase ไม่สำเร็จ ❌', 'error');
+      return;
+    }
+    if (!doSave) {
+      _dbwStatus('<span class="dbwin-ok">✅ เชื่อมต่อ Supabase สำเร็จ — ยังไม่บันทึก กดปุ่ม "บันทึก" เพื่อใช้งานจริง</span>');
+      return;
+    }
+    if (!f.sbEnabled) {
+      _dbwStatus('<span class="dbwin-ok">✅ บันทึกสำเร็จ — ยังไม่เปิดใช้การซิงค์ (ติ๊กถูก "เปิดใช้งานการซิงค์" แล้วกดบันทึกอีกครั้ง)</span>');
+      toast('บันทึกการตั้งค่า Supabase เรียบร้อย ✅', 'success');
+      return;
+    }
+    /* เปิดใช้งาน: ถ้าคลาวด์ว่าง → อัปโหลดข้อมูลในเครื่องขึ้นก่อน; ถ้าคลาวด์มีข้อมูล → ถามดึงลง */
+    if (r.empty) {
+      _dbwStatus('คลาวด์ยังว่าง — กำลังอัปโหลดข้อมูลในเครื่องขึ้น Supabase...');
+      const n = await Store.syncToSupabase();
+      _dbwStatus(`<span class="dbwin-ok">✅ เชื่อมต่อและอัปโหลดสำเร็จ (${n} รายการ) — จากนี้ข้อมูลจะซิงค์กับ Supabase อัตโนมัติ</span>`);
+    } else {
+      const pull = confirm('คลาวด์ Supabase มีข้อมูลอยู่แล้ว\n\nตกลง = ดึงข้อมูลจากคลาวด์มาแทนที่เครื่องนี้\nยกเลิก = เก็บข้อมูลเครื่องนี้ (ไม่ดึง)');
+      if (pull) {
+        _dbwStatus('กำลังดึงข้อมูลจาก Supabase...');
+        await Store.syncFromSupabase(true);
+        _dbwStatus('<span class="dbwin-ok">✅ เชื่อมต่อสำเร็จ — ดึงข้อมูลจากคลาวด์มาแล้ว</span>');
+      } else {
+        _dbwStatus('<span class="dbwin-ok">✅ เชื่อมต่อสำเร็จ — ใช้ข้อมูลเครื่องนี้ต่อไป (จะซิงค์ขึ้นคลาวด์เมื่อมีการแก้ไข)</span>');
+      }
+    }
+    toast('บันทึกการตั้งค่า Supabase เรียบร้อย ✅', 'success');
+  } catch (e) {
+    _dbwStatus(`<span class="dbwin-err">❌ ${esc(e.message)}</span>`);
+    if (doSave) toast('เชื่อมต่อ Supabase ไม่สำเร็จ ❌', 'error');
   }
 };
 
@@ -2269,14 +2438,38 @@ App.importBackup = function (input) {
   const file = input.files && input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data || !Array.isArray(data.items)) { toast('ไฟล์ backup ไม่ถูกต้อง', 'error'); return; }
-      if (!confirm(`นำเข้าข้อมูลจาก backup?\n- อุปกรณ์: ${data.items.length} รายการ\n- รายการ: ${(data.transactions || []).length} รายการ\n- ผู้ใช้: ${(data.users || []).length} คน\n\n⚠️ ข้อมูลปัจจุบันจะถูกเขียนทับ`)) return;
-      localStorage.setItem('it_stock_db_v5', JSON.stringify(data));
+      const cloudOn = typeof SupabaseBackend !== 'undefined' && SupabaseBackend.enabled;
+      if (!confirm(`นำเข้าข้อมูลจาก backup?\n- อุปกรณ์: ${data.items.length} รายการ\n- รายการ: ${(data.transactions || []).length} รายการ\n- ผู้ใช้: ${(data.users || []).length} คน\n\n⚠️ ข้อมูลปัจจุบันจะถูกเขียนทับ${cloudOn ? '\n☁️ และจะอัปโหลดทับข้อมูลบนคลาวด์ — เครื่องอื่นจะได้ข้อมูลชุดนี้อัตโนมัติ' : ''}`)) return;
+
+      /* กู้คืนผ่าน Store ทุกครั้ง เพื่อให้ทุก backend (localStorage / Supabase) ทำงานถูก */
+      Store.db = data;
+      if (!Store.db.seq) Store.db.seq = { item: data.items.length, receive: 0, issue: 0 };
+      Store.db._lastSync = Date.now();
+      Store.db._lastUpdate = new Date().toISOString();
+      await Store.save();
+
+      /* เปิดโหมด Supabase อยู่ → เขียนทับคลาวด์ทั้งชุด + ขยับ rev ให้เครื่องอื่นรู้ว่าต้อง replace เต็ม */
+      if (cloudOn) {
+        toast('กำลังอัปโหลดข้อมูลขึ้นคลาวด์...', 'info');
+        try {
+          await SupabaseBackend.replaceAll(Store.db);
+          await LiveSync._applyRemote();
+        } catch (err2) {
+          toast('อัปโหลดคลาวด์ไม่สำเร็จ: ' + err2.message, 'error');
+        }
+      }
+      /* โหมด MySQL → ส่งทับทั้งชุดเช่นกัน */
+      if (Store._isMySQL()) {
+        toast('กำลังส่งข้อมูลไป MySQL Server...', 'info');
+        try { await Store.syncToMySQL(); } catch (e) { console.error(e); }
+      }
+
       toast('นำเข้า backup สำเร็จ! กำลังรีเฟรช...', 'success');
-      setTimeout(() => location.reload(), 500);
+      setTimeout(() => location.reload(), 700);
     } catch (err) {
       toast('ไฟล์ backup เสียหาย: ' + err.message, 'error');
     }

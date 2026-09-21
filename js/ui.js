@@ -122,7 +122,7 @@ function openModal(html, opts = {}) {
   root.appendChild(ov);
   return ov.querySelector('.modal');
 }
-function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
+function closeModal() { document.getElementById('modal-root').innerHTML = ''; if (typeof LiveSync !== 'undefined' && LiveSync.onModalClosed) LiveSync.onModalClosed(); }
 function modalShell(title, body, foot = '') {
   return `<div class="modal-head"><h3>${title}</h3><button class="btn-icon" onclick="closeModal()" title="ปิด">${icon('x', 18)}</button></div>
   <div class="modal-body">${body}</div>
