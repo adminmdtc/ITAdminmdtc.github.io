@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'it-stock-v3';
+const CACHE_NAME = 'it-stock-v7';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -10,6 +10,9 @@ const STATIC_ASSETS = [
   '/js/ui.js',
   '/js/views.js',
   '/js/conflict.js',
+  '/js/mysql.js',
+  '/js/supabase.js',
+  '/js/liveSync.js',
   '/js/export.js',
   '/js/telegram.js',
   '/js/missions.js',
