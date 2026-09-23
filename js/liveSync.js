@@ -24,6 +24,7 @@ const LiveSync = {
     SupabaseBackend.startRealtime((evt) => this._onRemoteChange(evt));
     /* polling สำรองทุก 45 วิ — กัน websocket/เน็ตมีปัญหา เครื่องอื่นจะได้ข้อมูลใหม่ไม่เกินหนึ่งนาที */
     if (!this._pollTimer) this._pollTimer = setInterval(() => this._onRemoteChange({ source: 'poll' }), 45000);
+    this._setStatus('connected', 'ซิงค์สด (Supabase)');
     this._ensureBadge();
   },
 
@@ -31,7 +32,13 @@ const LiveSync = {
     if (typeof SupabaseBackend !== 'undefined') SupabaseBackend.stopRealtime();
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    this._setStatus('offline', 'ไม่ได้ซิงค์');
     this._removeBadge();
+  },
+
+  /* อัปเดตแถบสถานะซิงค์ที่แถบข้าง (ถ้ามี) */
+  _setStatus(status, msg) {
+    try { if (typeof updateSyncIndicator === 'function') updateSyncIndicator(status, msg); } catch (e) { /* ignore */ }
   },
 
   /* ---- จุดเริ่มเมื่อ remote มีการเปลี่ยนแปลง ---- */
@@ -89,7 +96,9 @@ const LiveSync = {
       }
       if (typeof route === 'function') route();
       this.notify('อัปเดตข้อมูลสดจากคลาวด์แล้ว ✅');
+      this._setStatus('connected', 'ซิงค์สด (Supabase)');
     } catch (e) {
+      this._setStatus('error', 'ซิงค์ผิดพลาด — จะลองใหม่');
       console.error('LiveSync apply error:', e);
     }
   },
